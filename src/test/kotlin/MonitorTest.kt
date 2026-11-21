@@ -141,7 +141,7 @@ fun runAll(server: String, vectorsFile: String): Int {
         clean(r)
         same("Bearer $KEY", r[0]["authorization"])
         val b = r[0]["body"] as Map<String, Any?>
-        same(mapOf("name" to "cyberrakshak-android", "version" to "1.0.0"), b["sdk"])
+        same(mapOf("name" to "cyberrakshak-android", "version" to "1.1.0"), b["sdk"])
         same("mobile", b["platform"])
         same("android 14", b["runtime"])
         same("1.4.2+57", b["release"])
@@ -332,6 +332,40 @@ fun runAll(server: String, vectorsFile: String): Int {
         } finally {
             Thread.setDefaultUncaughtExceptionHandler(before)
         }
+    }
+
+    test("scrubNames and scrubPatterns add to the built-in rules; a secret context name goes as [removed]") {
+        val options = CyberRakshakMonitor.Options(
+            KEY, "$base/api/v1/app-reports", context = mapOf("client_secret" to "abc", "region" to "dub1"),
+            scrubNames = listOf("x-brand-key", "face.key", "bad name"),
+            scrubPatterns = listOf("faces/[A-Za-z0-9/_.-]+", "upload-[0-9]+", "(", "x*"),
+        )
+        CyberRakshakMonitor.start(dir, options, "android 14")
+        CyberRakshakMonitor.captureException(
+            RuntimeException("x-brand-key=B1 for faces/2026/a.jpg (upload-77)"), "Files face.key=K9",
+            mapOf("user_pin" to 1234, "iban" to "IE29AIBK93115212345678", "x-tink-signature" to true, "spinning" to "yes", "japan" to 3),
+        )
+        same(true, CyberRakshakMonitor.flush(3000))
+        val r = requests()
+        clean(r)
+        val p = problems(r)[0]
+        same("java.lang.RuntimeException: x-brand-key=[removed] for [removed] ([removed])", p["message"])
+        same("Files face.key=[removed]", p["route"])
+        same(mapOf("client_secret" to "[removed]", "region" to "dub1", "user_pin" to "[removed]", "iban" to "[removed]", "x-tink-signature" to "[removed]", "spinning" to "yes", "japan" to 3.0), p["context"])
+        same("pin=[removed] x-brand-key=[removed] password=[removed]", CyberRakshakMonitor.scrub("pin=1 x-brand-key=2 password=3"))
+        CyberRakshakMonitor.close()
+        same("x-brand-key=2", CyberRakshakMonitor.scrub("x-brand-key=2"))
+    }
+
+    test("scrubNames and scrubPatterns: at most 50 names and 20 patterns") {
+        val options = CyberRakshakMonitor.Options(
+            KEY, "$base/api/v1/app-reports",
+            scrubNames = listOf("ok_name") + (0 until 60).map { "n$it" },
+            scrubPatterns = listOf("fine") + (0 until 25).map { "p${it}q" },
+        )
+        CyberRakshakMonitor.start(dir, options, "android 14")
+        same("ok_name=[removed] n48=[removed] n49=3 [removed] [removed] p19q", CyberRakshakMonitor.scrub("ok_name=1 n48=2 n49=3 fine p18q p19q"))
+        same("password=[removed] card [card]", CyberRakshakMonitor.scrub("password=1 card 4111 1111 1111 1111"))
     }
 
     println("android (JVM ${System.getProperty("java.version")}): $passed passed, $failed failed")

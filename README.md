@@ -30,7 +30,7 @@ and in your app's `build.gradle.kts`:
 
 ```kotlin
 dependencies {
-    implementation("com.github.LaabamOne-Business-Solutions-Pvt-Ltd:cyberrakshak-monitor-android:1.0.0")
+    implementation("com.github.LaabamOne-Business-Solutions-Pvt-Ltd:cyberrakshak-monitor-android:1.1.0")
 }
 ```
 
@@ -46,7 +46,7 @@ CyberRakshakMonitor.setRoute("Checkout")                          // the screen 
 CyberRakshakMonitor.captureException(e, context = mapOf("step" to 2))
 ```
 
-The key is your site's app key (`crk_…`), from the site's **Errors** page. From Java:
+The key is your site's app key (`crk_…`), made on the site's **Security scan** tab: under **Apps, servers and scripts**, press **Make an app key**. From Java:
 `CyberRakshakMonitor.init(this, new CyberRakshakMonitor.Options("crk_…"));` (the capture functions are on
 `CyberRakshakMonitor.INSTANCE`).
 
@@ -63,6 +63,8 @@ The key is your site's app key (`crk_…`), from the site's **Errors** page. Fro
 | `beforeSend` | Gets each problem, already scrubbed; return it (changed if you like) or `null` to drop it. |
 | `debug` | Says in Logcat (tag `CyberRakshakMonitor`) what the library does and why something was not sent. The key is never printed. |
 | `context` | Values sent with every problem: at most 20, strings (300 characters), numbers, true/false. |
+| `scrubNames` | Names of your own whose values are removed, like `password=`: whole words, `A-Z a-z 0-9 _ . -`, at most 50. Only adds to the built-in rules. |
+| `scrubPatterns` | Java regular expressions of your own, as strings: what they match becomes `[removed]`. At most 20; one that does not compile, or matches an empty text, is left out. Only adds to the built-in rules. |
 | `platform` | `mobile` (the default), `desktop`, `server`, `script` or `other`. |
 
 Functions: `init(context, options)`, `setRoute(screen)`, `captureException(e, route, context, level)`,
@@ -80,8 +82,12 @@ location, contacts.
 
 **Scrubbed on the phone before anything leaves**: query strings; `Bearer`/`Basic` values; the value after `password`,
 `secret`, `token`, `api_key` and the like; JSON Web Tokens; keys that say what they are (`crk_`, `sk_live_`, `ghp_`,
-`AKIA`…); email addresses; card numbers (Luhn-checked); long hex and random-looking runs. They become `[removed]`,
-`[token]`, `[email]` or `[card]`. The console scrubs everything again when it arrives.
+`AKIA`…); email addresses; IBANs (mod-97 checked); card numbers (Luhn-checked); the value after `pin`, `otp`, `cvv`,
+`iban`, `sort_code`, `card_number`, `account_number`, `cookie`, `signature`, `authorization` and the like, as whole
+words only (`company:` and `spinning:` stay); long hex and random-looking runs. They become `[removed]`, `[token]`,
+`[email]`, `[iban]` or `[card]`, and a context entry whose name is one of these names is sent as `[removed]`.
+`scrubNames` and `scrubPatterns` add names and patterns of your own; nothing switches the built-in rules off. The
+console scrubs everything again when it arrives.
 
 At most 10 problems go per request, each request under 64 KB; repeats of one problem are counted, not resent; what
 could not be sent (no network, the console asked to wait) is kept in the files folder and tried again later, never

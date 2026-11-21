@@ -1,5 +1,5 @@
 /*
- * Cyber Rakshak error monitoring for Android (Kotlin), version 1.0.0
+ * Cyber Rakshak error monitoring for Android (Kotlin), version 1.1.0
  * Docs: https://app.cyberrakshak.ai/sdk/README.md
  * Copyright Laabam One Business Solutions (OPC) Private Limited
  * Released under the MIT licence: https://app.cyberrakshak.ai/sdk/LICENSE
@@ -51,7 +51,7 @@ import java.util.regex.Matcher
 import java.util.regex.Pattern
 
 object CyberRakshakMonitor {
-    const val VERSION = "1.0.0"
+    const val VERSION = "1.1.0"
     const val DEFAULT_ENDPOINT = "https://app.cyberrakshak.ai/api/v1/app-reports"
 
     private const val SDK_NAME = "cyberrakshak-android"
@@ -93,6 +93,10 @@ object CyberRakshakMonitor {
         val debug: Boolean = false,
         val context: Map<String, Any?> = emptyMap(),
         val platform: String = "mobile",
+        /** Names of your own whose values are removed, like password= (whole words, A-Z a-z 0-9 _ . -, at most 50). Only adds to the built-in rules. */
+        val scrubNames: List<String> = emptyList(),
+        /** Regular expressions of your own: what they match is removed (at most 20). Only adds to the built-in rules. */
+        val scrubPatterns: List<String> = emptyList(),
     )
 
     /** One problem as it is sent (beforeSend gets it scrubbed). */
@@ -131,6 +135,9 @@ object CyberRakshakMonitor {
         var previous: Thread.UncaughtExceptionHandler? = null
         var own: Thread.UncaughtExceptionHandler? = null
         var fileCounter = 0
+        var extraNames: Pattern? = null
+        var extraKeys: Pattern? = null
+        var extraPatterns: List<Pattern> = emptyList()
     }
 
     @Volatile
@@ -167,10 +174,25 @@ object CyberRakshakMonitor {
         ) { "[token]" },
         // Email addresses (at most 64 characters before the @, as in an address).
         Rule(Pattern.compile("""[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]+\.[A-Za-z]{2,}""")) { "[email]" },
+        // IBANs: two capital letters, two digits, then 11 to 30 capitals or digits (or the same in groups of four, single
+        // spaces between), 15 to 34 in all, passing the ISO 13616 mod-97 check. Before cards: an IBAN holds a digit run.
+        Rule(Pattern.compile("""(?<![A-Za-z0-9])[A-Z]{2}[0-9]{2}(?:[A-Z0-9]{11,30}|(?: [A-Z0-9]{4}){2,7}(?: [A-Z0-9]{1,4})?)(?![A-Za-z0-9])""")) { m ->
+            if (ibanOk(m.group())) "[iban]" else null
+        },
         // Card numbers: 13 to 19 digits (single spaces or dashes between) that pass the Luhn check.
         Rule(Pattern.compile("""(?<![0-9])[0-9](?:[ -]?[0-9]){12,18}""")) { m ->
             if (luhn(m.group().replace(" ", "").replace("-", ""))) "[card]" else null
         },
+        // pin: 1234, "iban": "...", set-cookie: ..., x-tink-signature=...: these names only as whole words (not right after
+        // a letter or digit, the separator right after the name), so company:, spinning: and japan: stay; the value goes as
+        // in the password rule. After IBANs and cards, so a value with spaces in it has gone whole already. A value that is
+        // Bearer or Basic and a space was handled above.
+        Rule(
+            Pattern.compile(
+                """(?<![A-Za-z0-9])((?:authorization|cookie|signature|otp|pin|cvv|cvc|iban|bban|pan|account[_-]?(?:no|number|num)|sort[_-]?code|card[_-]?number|bank[_-]?auth[_-]?id)\\?["']?[ ]*[=:][ ]*\\?["']?)(?!(?:bearer|basic) )[^ \t\r\n&,;"'<>\\]+""",
+                Pattern.CASE_INSENSITIVE,
+            ),
+        ) { m -> (m.group(1) ?: "") + "[removed]" },
         // Long hex runs: session ids, hashes, keys.
         Rule(Pattern.compile("""[0-9a-fA-F]{32,}""")) { "[token]" },
         // Long random-looking runs: a digit, an upper-case and a lower-case letter in 40 or more of A-Z a-z 0-9 + _ -.
@@ -195,29 +217,115 @@ object CyberRakshakMonitor {
         return sum % 10 == 0
     }
 
-    /** What a text looks like once scrubbed: what this library would send. */
+    /** ISO 13616: the first four characters moved to the end, letters as 10..35, the whole number mod 97 is 1. */
+    private fun ibanOk(text: String): Boolean {
+        val s = text.replace(" ", "")
+        if (s.length < 15 || s.length > 34) return false
+        val moved = s.substring(4) + s.substring(0, 4)
+        var rest = 0
+        for (ch in moved) {
+            val v = if (ch >= 'A') ch - 'A' + 10 else ch - '0'
+            rest = if (v > 9) (rest * 100 + v) % 97 else (rest * 10 + v) % 97
+        }
+        return rest == 1
+    }
+
+    // A context entry's name that says its value is a secret: the words of the password rule anywhere in it, or one of
+    // the whole-word names (at the end, not right after a letter or digit: user_pin, x-tink-signature, not spinning).
+    private val SECRET_NAME_RE = Pattern.compile(
+        """password|passwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key|credential|session[_-]?id""",
+        Pattern.CASE_INSENSITIVE,
+    )
+    private val WHOLE_NAME_RE = Pattern.compile(
+        """(?:^|[^A-Za-z0-9])(?:authorization|cookie|signature|otp|pin|cvv|cvc|iban|bban|pan|account[_-]?(?:no|number|num)|sort[_-]?code|card[_-]?number|bank[_-]?auth[_-]?id)$""",
+        Pattern.CASE_INSENSITIVE,
+    )
+    private val EXTRA_NAME_RE = Pattern.compile("^[A-Za-z0-9_.-]{1,40}$")
+    private const val MAX_EXTRA_NAMES = 50
+    private const val MAX_EXTRA_PATTERNS = 20
+
+    private fun secretName(name: String): Boolean {
+        val s = state
+        return SECRET_NAME_RE.matcher(name).find() || WHOLE_NAME_RE.matcher(name).find() || (s?.extraKeys?.matcher(name)?.find() ?: false)
+    }
+
+    private fun applyRule(text: String, pattern: Pattern, replace: (Matcher) -> String?): String {
+        val m = pattern.matcher(text)
+        val sb = StringBuilder()
+        var last = 0
+        while (m.find()) {
+            val replaced = replace(m) ?: continue
+            sb.append(text, last, m.start()).append(replaced)
+            last = m.end()
+        }
+        if (last == 0 && sb.isEmpty()) return text
+        sb.append(text, last, text.length)
+        return sb.toString()
+    }
+
+    /**
+     * What a text looks like once scrubbed: what this library would send. The built-in rules always run, first; then the
+     * names and patterns given as scrubNames and scrubPatterns, which can only add to them.
+     */
     @JvmStatic
     fun scrub(text: String): String {
         return try {
             var out = text
-            for (rule in RULES) {
-                val m = rule.pattern.matcher(out)
-                val sb = StringBuilder()
-                var last = 0
-                while (m.find()) {
-                    val replaced = rule.replace(m) ?: continue
-                    sb.append(out, last, m.start()).append(replaced)
-                    last = m.end()
-                }
-                if (last > 0 || sb.isNotEmpty()) {
-                    sb.append(out, last, out.length)
-                    out = sb.toString()
+            for (rule in RULES) out = applyRule(out, rule.pattern, rule.replace)
+            val s = state
+            val names = s?.extraNames
+            if (names != null) out = applyRule(out, names) { m -> (m.group(1) ?: "") + "[removed]" }
+            for (pattern in s?.extraPatterns ?: emptyList()) {
+                try {
+                    out = pattern.matcher(out).replaceAll("[removed]")
+                } catch (e: Throwable) {
+                    // A pattern of yours that fails is skipped; the built-in rules have run.
                 }
             }
             out
         } catch (e: Throwable) {
             ""
         }
+    }
+
+    /** scrubNames: names of your own, as whole words, their values removed like the built-in ones; at most 50. */
+    private fun extraNames(list: List<String>, debug: Boolean): List<String> {
+        val names = ArrayList<String>()
+        for (name in list) {
+            if (!EXTRA_NAME_RE.matcher(name).matches()) {
+                say(debug, "scrubNames: a name was left out: only A-Z a-z 0-9 _ . - (1 to 40)")
+                continue
+            }
+            if (names.size >= MAX_EXTRA_NAMES) {
+                say(debug, "scrubNames: only the first $MAX_EXTRA_NAMES are used")
+                break
+            }
+            val lower = name.lowercase(Locale.ROOT)
+            if (lower !in names) names.add(lower)
+        }
+        return names
+    }
+
+    /** scrubPatterns: regular expressions of your own; what they match goes. A bad one, or one matching "", is left out. */
+    private fun extraPatterns(list: List<String>, debug: Boolean): List<Pattern> {
+        val patterns = ArrayList<Pattern>()
+        for (source in list) {
+            if (patterns.size >= MAX_EXTRA_PATTERNS) {
+                say(debug, "scrubPatterns: only the first $MAX_EXTRA_PATTERNS are used")
+                break
+            }
+            try {
+                val pattern = Pattern.compile(source)
+                if (pattern.matcher("").find()) {
+                    say(debug, "scrubPatterns: a pattern that matches an empty text was left out")
+                    continue
+                }
+                patterns.add(pattern)
+            } catch (e: Throwable) {
+                say(debug, "scrubPatterns: a pattern was left out: $e")
+            }
+        }
+        return patterns
     }
 
     // ── API ──────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -246,7 +354,7 @@ object CyberRakshakMonitor {
             if (!options.enabled) return
             val key = options.key.trim()
             if (!KEY_RE.matcher(key).matches()) {
-                say(options.debug, "not started: key must be the crk_ key from your site's Errors page")
+                say(options.debug, "not started: key must be your site's crk_ app key (its Security scan tab, Apps, servers and scripts)")
                 return
             }
             var release = options.release
@@ -271,6 +379,16 @@ object CyberRakshakMonitor {
                 if (options.platform in PLATFORMS) options.platform else "mobile",
                 clip(runtime, 60), executor,
             )
+            val names = extraNames(options.scrubNames, options.debug)
+            if (names.isNotEmpty()) {
+                val alternation = names.joinToString("|") { Pattern.quote(it) }
+                s.extraNames = Pattern.compile(
+                    """(?<![A-Za-z0-9])((?:""" + alternation + """)\\?["']?[ ]*[=:][ ]*\\?["']?)[^ \t\r\n&,;"'<>\\]+""",
+                    Pattern.CASE_INSENSITIVE,
+                )
+                s.extraKeys = Pattern.compile("(?:^|[^A-Za-z0-9])(?:$alternation)$", Pattern.CASE_INSENSITIVE)
+            }
+            s.extraPatterns = extraPatterns(options.scrubPatterns, options.debug)
             val previous = Thread.getDefaultUncaughtExceptionHandler()
             val own = Thread.UncaughtExceptionHandler { thread, error -> onCrash(s, thread, error) }
             s.previous = previous
@@ -416,7 +534,7 @@ object CyberRakshakMonitor {
             if (source == null) continue
             for ((name, value) in source) {
                 val key = clip(name, MAX_CONTEXT_KEY)
-                val kept: Any? = when (value) {
+                val kept: Any? = if (secretName(name)) "[removed]" else when (value) {
                     null -> null
                     is Boolean -> value
                     is Int, is Long, is Short, is Byte -> (value as Number).toLong()
