@@ -1,0 +1,8 @@
+.gradle/
+build/
+# Where your Android SDK is: per computer, never committed
+local.properties
+.idea/
+*.iml
+.kotlin/
+.DS_Store

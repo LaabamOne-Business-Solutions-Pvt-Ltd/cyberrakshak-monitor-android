@@ -1,0 +1,6 @@
+# JitPack (https://jitpack.io) builds a tag of this repository on request and serves it as
+#   com.github.LaabamOne-Business-Solutions-Pvt-Ltd:cyberrakshak-monitor-android:<tag>
+jdk:
+  - openjdk17
+install:
+  - ./gradlew --no-daemon publishReleasePublicationToMavenLocal
