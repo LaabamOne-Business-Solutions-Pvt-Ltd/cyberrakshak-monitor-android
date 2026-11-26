@@ -141,7 +141,7 @@ fun runAll(server: String, vectorsFile: String): Int {
         clean(r)
         same("Bearer $KEY", r[0]["authorization"])
         val b = r[0]["body"] as Map<String, Any?>
-        same(mapOf("name" to "cyberrakshak-android", "version" to "1.1.0"), b["sdk"])
+        same(mapOf("name" to "cyberrakshak-android", "version" to "1.1.1"), b["sdk"])
         same("mobile", b["platform"])
         same("android 14", b["runtime"])
         same("1.4.2+57", b["release"])

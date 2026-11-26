@@ -1,12 +1,12 @@
 /*
- * Cyber Rakshak error monitoring for Android (Kotlin), version 1.1.0
+ * Cyber Rakshak error monitoring for Android (Kotlin), version 1.1.1
  * Docs: https://app.cyberrakshak.ai/sdk/README.md
  * Copyright Laabam One Business Solutions (OPC) Private Limited
  * Released under the MIT licence: https://app.cyberrakshak.ai/sdk/LICENSE
  *
  * One Kotlin file, nothing but the Android SDK (API 21+) and the Kotlin standard library: add it to your app's source.
- * Needs <uses-permission android:name="android.permission.INTERNET" />. Sends what goes wrong in your app to your
- * site's Errors page in the Cyber Rakshak console: the exception's text and stack trace, the screen, when and how often,
+ * Needs <uses-permission android:name="android.permission.INTERNET" />. Sends what goes wrong in your app to its own
+ * Errors page in the Cyber Rakshak console: the exception's text and stack trace, the screen, when and how often,
  * and the Android version. Secrets are scrubbed on the phone before anything leaves (email addresses, tokens and keys,
  * password=... values, query strings, card numbers). Nothing the user types, no device id, no location, no contacts.
  *
@@ -51,7 +51,7 @@ import java.util.regex.Matcher
 import java.util.regex.Pattern
 
 object CyberRakshakMonitor {
-    const val VERSION = "1.1.0"
+    const val VERSION = "1.1.1"
     const val DEFAULT_ENDPOINT = "https://app.cyberrakshak.ai/api/v1/app-reports"
 
     private const val SDK_NAME = "cyberrakshak-android"
@@ -354,7 +354,7 @@ object CyberRakshakMonitor {
             if (!options.enabled) return
             val key = options.key.trim()
             if (!KEY_RE.matcher(key).matches()) {
-                say(options.debug, "not started: key must be your site's crk_ app key (its Security scan tab, Apps, servers and scripts)")
+                say(options.debug, "not started: key must be its crk_ app key (the console's Apps & websites: Add, then its Set up page)")
                 return
             }
             var release = options.release
