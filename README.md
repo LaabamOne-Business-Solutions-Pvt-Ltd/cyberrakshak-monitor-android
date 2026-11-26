@@ -1,7 +1,7 @@
 # cyberrakshak-monitor-android
 
-Cyber Rakshak error monitoring for **Android (Kotlin or Java), API 21+**: what goes wrong in your app lands on your
-site's **Errors** page in the Cyber Rakshak console, scrubbed of secrets on the phone before it leaves. One Kotlin
+Cyber Rakshak error monitoring for **Android (Kotlin or Java), API 21+**: what goes wrong in your app lands on its
+own **Errors** page in the Cyber Rakshak console, scrubbed of secrets on the phone before it leaves. One Kotlin
 class, nothing but the Android SDK and the Kotlin standard library.
 
 ## What it catches
@@ -30,7 +30,7 @@ and in your app's `build.gradle.kts`:
 
 ```kotlin
 dependencies {
-    implementation("com.github.LaabamOne-Business-Solutions-Pvt-Ltd:cyberrakshak-monitor-android:1.1.0")
+    implementation("com.github.LaabamOne-Business-Solutions-Pvt-Ltd:cyberrakshak-monitor-android:1.1.1")
 }
 ```
 
@@ -46,7 +46,7 @@ CyberRakshakMonitor.setRoute("Checkout")                          // the screen 
 CyberRakshakMonitor.captureException(e, context = mapOf("step" to 2))
 ```
 
-The key is your site's app key (`crk_…`), made on the site's **Security scan** tab: under **Apps, servers and scripts**, press **Make an app key**. From Java:
+The key is its app key (`crk_…`): in the console's **Apps & websites**, under **Add**, choose what it is and give it a name; its key is shown once on its **Set up** page. A key made before on a website's **Security scan** tab keeps working. From Java:
 `CyberRakshakMonitor.init(this, new CyberRakshakMonitor.Options("crk_…"));` (the capture functions are on
 `CyberRakshakMonitor.INSTANCE`).
 
@@ -54,7 +54,7 @@ The key is your site's app key (`crk_…`), made on the site's **Security scan**
 
 | Option | Meaning |
 |---|---|
-| `key` | Your site's app key, `crk_` and 32 letters or digits. Required; with no valid key the library does nothing. |
+| `key` | Its app key, `crk_` and 32 letters or digits. Required; with no valid key the library does nothing. |
 | `endpoint` | Where reports go. Default `https://app.cyberrakshak.ai/api/v1/app-reports`. |
 | `release` | Your version or build (`A-Z a-z 0-9 . _ + -`, at most 60), so a problem shows the release it started in. |
 | `environment` | `production`, `staging`… (`a-z 0-9 _ -`, at most 30). |

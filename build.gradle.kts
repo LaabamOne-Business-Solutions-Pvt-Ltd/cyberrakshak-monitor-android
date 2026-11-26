@@ -11,7 +11,7 @@ plugins {
 // JitPack serves a tag as com.github.LaabamOne-Business-Solutions-Pvt-Ltd:cyberrakshak-monitor-android:<tag>, so the
 // tag is this version exactly (1.1.0, no "v"). The console's scripts/sdk-packages.mjs --check reads this line.
 group = "com.github.LaabamOne-Business-Solutions-Pvt-Ltd"
-version = "1.1.0"
+version = "1.1.1"
 
 android {
     namespace = "ai.cyberrakshak.monitor"
